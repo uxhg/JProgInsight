@@ -21,9 +21,6 @@ import java.util.*;
 
 public class App {
     private static final Logger logger = LogManager.getLogger(App.class);
-    private static final List<CGEdge> callGraphEdges = new ArrayList<>();
-
-    private static final Map<String, String> methodSignatureToDefinitionMap = new HashMap<>();
 
     public static void main(String[] args) {
         Options options = new Options();
@@ -52,35 +49,41 @@ public class App {
         String baseOutputDirectoryPath = cmd.getOptionValue("output");
 
 
-        Factory factory = launchSpoon(inputResourcePath, baseOutputDirectoryPath);
-        visitClass(factory);
-        writeCallGraphToFile(baseOutputDirectoryPath);
-        writeMethodMappingToJsonFile(baseOutputDirectoryPath);
+        processInput(inputResourcePath, baseOutputDirectoryPath);
     }
 
-    private static Factory launchSpoon(String inputPath, String outputPath) {
+    private static void processInput(String inputResourcePath, String baseOutputDirectoryPath) {
+        List<CGEdge> callGraphEdges = new ArrayList<>();
+        Map<String, String> methodSignatureToDefinitionMap = new HashMap<>();
+        Factory factory = launchSpoon(inputResourcePath);
+        visitClasses(factory, callGraphEdges, methodSignatureToDefinitionMap);
+        writeCallGraphToFile(baseOutputDirectoryPath, callGraphEdges);
+        writeMethodMappingToJsonFile(baseOutputDirectoryPath, methodSignatureToDefinitionMap);
+    }
+
+    private static Factory launchSpoon(String inputPath) {
         Launcher spoon = new Launcher();
         spoon.addInputResource(inputPath);
         spoon.buildModel();
         return spoon.getFactory();
     }
 
-    private static void visitClass(Factory factory) {
+    private static void visitClasses(Factory factory, List<CGEdge> callGraphEdges, Map<String, String> methodSignatureToDefinitionMap) {
         for (CtType<?> type : factory.Class().getAll()) {
             if (type.isInterface() || type.isAnnotationType()) continue;
             CtClass clazz = (CtClass) type;
-            visitMethod(clazz);
+            visitMethod(clazz, callGraphEdges, methodSignatureToDefinitionMap);
         }
     }
 
-    private static void visitMethod(CtClass clazz) {
+    private static void visitMethod(CtClass clazz, List<CGEdge> callGraphEdges, Map<String, String> methodSignatureToDefinitionMap) {
         Set<CtMethod> methodSet = clazz.getAllMethods();
         for (CtMethod method : methodSet) {
             String methodSourceCode = method.toString();
             String caller_class = clazz.getQualifiedName();
             String caller_sig = method.getSignature();
             methodSignatureToDefinitionMap.put(caller_class + "." + caller_sig, methodSourceCode);
-            final List<CtInvocation<?>> elements = method.getElements(new AbstractFilter<CtInvocation<?>>() {
+            final List<CtInvocation<?>> elements = method.getElements(new AbstractFilter<>() {
                 @Override
                 public boolean matches(CtInvocation<?> element) {
                     return super.matches(element);
@@ -99,7 +102,7 @@ public class App {
         }
     }
 
-    private static void writeCallGraphToFile(String outputPath) {
+    private static void writeCallGraphToFile(String outputPath, List<CGEdge> callGraphEdges) {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputPath + "/call_graph.tsv"))) {
             for (CGEdge edge : callGraphEdges) {
                 writer.write(edge.toString() + "\n");
@@ -108,7 +111,7 @@ public class App {
             e.printStackTrace();
         }
     }
-    private static void writeMethodMappingToJsonFile(String outputPath) {
+    private static void writeMethodMappingToJsonFile(String outputPath, Map<String, String> methodSignatureToDefinitionMap) {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
         try {
