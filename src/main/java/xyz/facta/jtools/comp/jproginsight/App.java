@@ -2,10 +2,14 @@ package xyz.facta.jtools.comp.jproginsight;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.commons.cli.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import spoon.Launcher;
+import spoon.reflect.code.CtExpression;
+import spoon.reflect.code.CtFieldRead;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.declaration.CtClass;
 import spoon.reflect.declaration.CtMethod;
@@ -21,6 +25,8 @@ import java.util.*;
 
 public class App {
     private static final Logger logger = LogManager.getLogger(App.class);
+    private static int countCalleesWithoutType = 0; // counters for: how many callees cannot get their types
+    private static int countCalleesWithoutDefinition = 0; // counters for: how many callees cannot get their definitions
 
     public static void main(String[] args) {
         Options options = new Options();
@@ -48,7 +54,6 @@ public class App {
         String inputResourcePath = cmd.getOptionValue("input");
         String baseOutputDirectoryPath = cmd.getOptionValue("output");
 
-
         processInput(inputResourcePath, baseOutputDirectoryPath);
     }
 
@@ -59,6 +64,9 @@ public class App {
         visitClasses(factory, callGraphEdges, methodSignatureToDefinitionMap);
         writeCallGraphToFile(baseOutputDirectoryPath, callGraphEdges);
         writeMethodMappingToJsonFile(baseOutputDirectoryPath, methodSignatureToDefinitionMap);
+        Map<String, List<String>> callerToCalleeMap = createCallerToCalleesMapping(callGraphEdges);
+        generateCGwithMethodBody(callerToCalleeMap, methodSignatureToDefinitionMap, baseOutputDirectoryPath);
+        reportUnresolvedCounts();
     }
 
     private static Factory launchSpoon(String inputPath) {
@@ -70,9 +78,22 @@ public class App {
 
     private static void visitClasses(Factory factory, List<CGEdge> callGraphEdges, Map<String, String> methodSignatureToDefinitionMap) {
         for (CtType<?> type : factory.Class().getAll()) {
-            if (type.isInterface() || type.isAnnotationType()) continue;
+            processType(callGraphEdges, methodSignatureToDefinitionMap, type);
+        }
+    }
+
+    private static void processType(List<CGEdge> callGraphEdges, Map<String, String> methodSignatureToDefinitionMap, CtType<?> type) {
+        if (type.isInterface() || type.isAnnotationType()) return;
+
+        if (type instanceof CtClass) {
+            logger.debug("Inspect type: {}", type.getQualifiedName());
             CtClass clazz = (CtClass) type;
             visitMethod(clazz, callGraphEdges, methodSignatureToDefinitionMap);
+        }
+        // Recursively process nested types
+        for (CtType<?> nestedType : type.getNestedTypes()) {
+            //logger.debug("Found nested type: {}", nestedType.getQualifiedName());
+            processType(callGraphEdges, methodSignatureToDefinitionMap, nestedType);
         }
     }
 
@@ -90,16 +111,51 @@ public class App {
                 }
             });
             for (CtInvocation element : elements) {
-                String callee_class = "N_A";
-                try {
-                    callee_class = element.getExecutable().getDeclaringType().toString();
-                } catch (NullPointerException e) {
-                    logger.debug("Cannot get callee declaring type");
-                }
+                String callee_class = getCalleeClassNameComplex(element);
+                //if (!Objects.equals(element.getExecutable().getDeclaration().toString(), element.getTarget().getType().getQualifiedName())) {
+                //    logger.error("callee_class: {}, target_type: {}", element.getExecutable().getDeclaration().toString(), element.getTarget().getType().getQualifiedName());
+                //}
                 String callee_sig = element.getExecutable().getSignature();
                 callGraphEdges.add(new CGEdge(caller_class, caller_sig, callee_class, callee_sig));
             }
         }
+    }
+
+    private static String getCalleeClassName(CtInvocation element) {
+        String callee_class = "N_A";
+        try {
+            callee_class = element.getExecutable().getDeclaringType().toString();
+        } catch (NullPointerException e) {
+            logger.info("Cannot get callee declaring type for {}", element.toString());
+            countCalleesWithoutType++;
+        }
+        return callee_class;
+    }
+
+    private static String getCalleeClassNameComplex(CtInvocation element) {
+        String callee_class = "N_A";
+        CtExpression<?> target = element.getTarget();
+        logger.error("element: {}, target: {}, type: {}", element.toString(), target, target.getType());
+        if (target instanceof CtFieldRead) {// If encountering static field like CSVFormat.DEFAULT.methodcall()
+            CtFieldRead<?> fieldRead = (CtFieldRead<?>) target;
+            if (fieldRead.getVariable().isStatic()) {
+                // Use the type of the static field
+                try {
+                    callee_class = fieldRead.getType().getQualifiedName();
+                } catch (NullPointerException e) {
+                    logger.info("Cannot get callee type for {}", element.toString());
+                    countCalleesWithoutType++;
+                }
+            }
+        } else {
+            try {
+                callee_class = element.getExecutable().getDeclaringType().toString();
+            } catch (NullPointerException e) {
+                logger.info("Cannot get callee declaring type for {}", element.toString());
+                countCalleesWithoutType++;
+            }
+        }
+        return callee_class;
     }
 
     private static void writeCallGraphToFile(String outputPath, List<CGEdge> callGraphEdges) {
@@ -111,6 +167,7 @@ public class App {
             e.printStackTrace();
         }
     }
+
     private static void writeMethodMappingToJsonFile(String outputPath, Map<String, String> methodSignatureToDefinitionMap) {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
@@ -120,4 +177,69 @@ public class App {
             e.printStackTrace();
         }
     }
+
+    private static Map<String, List<String>> createCallerToCalleesMapping(List<CGEdge> callGraphEdges) {
+        Map<String, List<String>> callerToCallees = new HashMap<>();
+        for (CGEdge edge : callGraphEdges) {
+            String caller = edge.originClass + "." + edge.originMethodSig;
+            String callee = edge.destMethodSig;
+            if (!Objects.equals(edge.destClass, "N.A")) {
+                callee = edge.destClass + "." + edge.destMethodSig;
+            }
+            callerToCallees.computeIfAbsent(caller, k -> new ArrayList<>()).add(callee);
+        }
+        return callerToCallees;
+    }
+
+    private static void generateCGwithMethodBody(Map<String, List<String>> callerToCallees, Map<String, String> methodSignatureToDefinitionMap, String outputPath) {
+        ObjectMapper mapper = new ObjectMapper();
+        ArrayNode jsonArray = mapper.createArrayNode();
+
+        for (Map.Entry<String, List<String>> entry : callerToCallees.entrySet()) {
+            String callerSig = entry.getKey();
+            String callerDef = methodSignatureToDefinitionMap.get(callerSig);
+
+            if (callerDef == null) {
+                logger.warn("Definition not found for caller:" + callerSig);
+                continue;
+            }
+
+            ObjectNode callerObject = mapper.createObjectNode();
+            callerObject.put("caller_name", callerSig);
+            callerObject.put("caller_def", callerDef);
+
+            ArrayNode calleeArray = mapper.createArrayNode();
+            for (String calleeSig : entry.getValue()) {
+                String calleeDef = methodSignatureToDefinitionMap.get(calleeSig);
+                if (calleeDef == null) {
+                    // many callees have no definition because they are from external libraries
+                    logger.info("Definition not found for callee:" + calleeSig);
+                    countCalleesWithoutDefinition++;
+                    continue;
+                }
+
+                ObjectNode calleeObject = mapper.createObjectNode();
+                calleeObject.put("callee_name", calleeSig);
+                calleeObject.put("callee_def", calleeDef);
+                calleeArray.add(calleeObject);
+            }
+            if (!calleeArray.isEmpty()) {
+                // only add this entry if there is at least one callee
+                callerObject.set("callee_list", calleeArray);
+                jsonArray.add(callerObject);
+            }
+        }
+
+        try {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(new File(outputPath + "/call_graph_with_defs.json"), jsonArray);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void reportUnresolvedCounts() {
+        System.out.println("Number of callees without type (not unique): " + countCalleesWithoutType);
+        System.out.println("Number of callees without definition (not unique): " + countCalleesWithoutDefinition);
+    }
+
 }

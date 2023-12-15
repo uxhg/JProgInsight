@@ -1,0 +1,8 @@
+* Usage
+
+#+begin_src sh
+java -Dlog4j2.level=debug  -jar target/JProgInsight-1.0-SNAPSHOT-jar-with-dependencies.jar -i ~/.local/share/apictx-subjects/repo-workspace/commons-csv/ -o .
+#+end_src
+
+* Credits
+Based on [[https://spoon.gforge.inria.fr/][Spoon]]. 
