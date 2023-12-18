@@ -1,0 +1,135 @@
+[
+    {
+        "caller_name": "org.apache.commons.csv.CSVFormat.validate",
+        "caller_def": "    private void validate() throws IllegalArgumentException {\n        if (containsLineBreak(delimiter)) {\n            throw new IllegalArgumentException(\"The delimiter cannot be a line break\");\n        }\n\n        if (quoteCharacter != null && contains(delimiter, quoteCharacter.charValue())) {\n            throw new IllegalArgumentException(\"The quoteChar character and the delimiter cannot be the same ('\" + quoteCharacter + \"')\");\n        }\n\n        if (escapeCharacter != null && contains(delimiter, escapeCharacter.charValue())) {\n            throw new IllegalArgumentException(\"The escape character and the delimiter cannot be the same ('\" + escapeCharacter + \"')\");\n        }\n\n        if (commentMarker != null && contains(delimiter, commentMarker.charValue())) {\n            throw new IllegalArgumentException(\"The comment start character and the delimiter cannot be the same ('\" + commentMarker + \"')\");\n        }\n\n        if (quoteCharacter != null && quoteCharacter.equals(commentMarker)) {\n            throw new IllegalArgumentException(\"The comment start character and the quoteChar cannot be the same ('\" + commentMarker + \"')\");\n        }\n\n        if (escapeCharacter != null && escapeCharacter.equals(commentMarker)) {\n            throw new IllegalArgumentException(\"The comment start and the escape character cannot be the same ('\" + commentMarker + \"')\");\n        }\n\n        if (escapeCharacter == null && quoteMode == QuoteMode.NONE) {\n            throw new IllegalArgumentException(\"No quotes mode set but no escape character is set\");\n        }\n\n        // Validate headers\n        if (headers != null && duplicateHeaderMode != DuplicateHeaderMode.ALLOW_ALL) {\n            final Set<String> dupCheckSet = new HashSet<>(headers.length);\n            final boolean emptyDuplicatesAllowed = duplicateHeaderMode == DuplicateHeaderMode.ALLOW_EMPTY;\n            for (final String header : headers) {\n                final boolean blank = isBlank(header);\n                // Sanitise all empty headers to the empty string \"\" when checking duplicates\n                final boolean containsHeader = !dupCheckSet.add(blank ? \"\" : header);\n                if (containsHeader && !(blank && emptyDuplicatesAllowed)) {\n                    throw new IllegalArgumentException(\n                        String.format(\n                            \"The header contains a duplicate name: \\\"%s\\\" in %s. If this is valid then use CSVFormat.Builder.setDuplicateHeaderMode().\",\n                            header, Arrays.toString(headers)));\n                }\n            }\n        }\n    }\n\n",
+        "callee_list": [
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.containsLineBreak",
+                "callee_def": "    private static boolean containsLineBreak(final String source) {\n        return contains(source, CR) || contains(source, LF);\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.contains ",
+                "callee_def": "    private static boolean contains(final String source, final char searchCh) {\n        return Objects.requireNonNull(source, \"source\").indexOf(searchCh) >= 0;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.isBlank",
+                "callee_def": "    static boolean isBlank(final String value) {\n        return value == null || value.trim().isEmpty();\n    }\n"
+            }
+        ]
+    },
+    {
+        "caller_name": "org.apache.commons.csv.Lexer.parseEncapsulatedToken",
+        "caller_def": "    private Token parseEncapsulatedToken(final Token token) throws IOException {\n        token.isQuoted = true;\n        // save current line number in case needed for IOE\n        final long startLineNumber = getCurrentLineNumber();\n        int c;\n        while (true) {\n            c = reader.read();\n\n            if (isEscape(c)) {\n                if (isEscapeDelimiter()) {\n                    token.content.append(delimiter);\n                } else {\n                    final int unescaped = readEscape();\n                    if (unescaped == END_OF_STREAM) { // unexpected char after escape\n                        token.content.append((char) c).append((char) reader.getLastChar());\n                    } else {\n                        token.content.append((char) unescaped);\n                    }\n                }\n            } else if (isQuoteChar(c)) {\n                if (isQuoteChar(reader.lookAhead())) {\n                    // double or escaped encapsulator -> add single encapsulator to token\n                    c = reader.read();\n                    token.content.append((char) c);\n                } else {\n                    // token finish mark (encapsulator) reached: ignore whitespace till delimiter\n                    while (true) {\n                        c = reader.read();\n                        if (isDelimiter(c)) {\n                            token.type = TOKEN;\n                            return token;\n                        }\n                        if (isEndOfFile(c)) {\n                            token.type = EOF;\n                            token.isReady = true; // There is data at EOF\n                            return token;\n                        }\n                        if (readEndOfLine(c)) {\n                            token.type = EORECORD;\n                            return token;\n                        }\n                        if (!Character.isWhitespace((char)c)) {\n                            // error invalid char between token and next delimiter\n                            throw new IOException(\"(line \" + getCurrentLineNumber() +\n                                    \") invalid char between encapsulated token and delimiter\");\n                        }\n                    }\n                }\n            } else if (isEndOfFile(c)) {\n                // error condition (end of file before end of token)\n                throw new IOException(\"(startline \" + startLineNumber +\n                        \") EOF reached before encapsulated token finished\");\n            } else {\n                // consume character\n                token.content.append((char) c);\n            }\n        }\n    }\n",
+        "callee_list": [
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.isDelimiter",
+                "callee_def": "    boolean isDelimiter(final int ch) throws IOException {\n        isLastTokenDelimiter = false;\n        if (ch != delimiter[0]) {\n            return false;\n        }\n        if (delimiter.length == 1) {\n            isLastTokenDelimiter = true;\n            return true;\n        }\n        reader.lookAhead(delimiterBuf);\n        for (int i = 0; i < delimiterBuf.length; i++) {\n            if (delimiterBuf[i] != delimiter[i+1]) {\n                return false;\n            }\n        }\n        final int count = reader.read(delimiterBuf, 0, delimiterBuf.length);\n        isLastTokenDelimiter = count != END_OF_STREAM;\n        return isLastTokenDelimiter;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.ExtendedBufferedReader.read",
+                "callee_def": "    public int read() throws IOException {\n        final int current = super.read();\n        if (current == CR || current == LF && lastChar != CR ||\n            current == END_OF_STREAM && lastChar != CR && lastChar != LF && lastChar != END_OF_STREAM) {\n            eolCounter++;\n        }\n        lastChar = current;\n        position++;\n        return lastChar;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.ExtendedBufferedReader.lookAhead",
+                "callee_def": "    int lookAhead() throws IOException {\n        super.mark(1);\n        final int c = super.read();\n        super.reset();\n\n        return c;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.getCurrentLineNumber",
+                "callee_def": "    long getCurrentLineNumber() {\n        return reader.getCurrentLineNumber();\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.isEscapeDelimiter",
+                "callee_def": "    boolean isEscapeDelimiter() throws IOException {\n        reader.lookAhead(escapeDelimiterBuf);\n        if (escapeDelimiterBuf[0] != delimiter[0]) {\n            return false;\n        }\n        for (int i = 1; i < delimiter.length; i++) {\n            if (escapeDelimiterBuf[2 * i] != delimiter[i] || escapeDelimiterBuf[2 * i - 1] != escape) {\n                return false;\n            }\n        }\n        final int count = reader.read(escapeDelimiterBuf, 0, escapeDelimiterBuf.length);\n        return count != END_OF_STREAM;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.ExtendedBufferedReader.getLastChar",
+                "callee_def": "    int getLastChar() {\n        return lastChar;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.readEndOfLine",
+                "callee_def": "    int getLastChar() {\n        return lastChar;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.isEndOfFile",
+                "callee_def": "    boolean isEndOfFile(final int ch) {\n        return ch == END_OF_STREAM;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.isQuoteChar",
+                "callee_def": "    boolean isQuoteChar(final int ch) {\n        return ch == quoteChar;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.isEscape",
+                "callee_def": "    boolean isEscape(final int ch) {\n        return ch == escape;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.readEscape",
+                "callee_def": "    int readEscape() throws IOException {\n        // the escape char has just been read (normally a backslash)\n        final int ch = reader.read();\n        switch (ch) {\n        case 'r':\n            return CR;\n        case 'n':\n            return LF;\n        case 't':\n            return TAB;\n        case 'b':\n            return BACKSPACE;\n        case 'f':\n            return FF;\n        case CR:\n        case LF:\n        case FF: // TODO is this correct?\n        case TAB: // TODO is this correct? Do tabs need to be escaped?\n        case BACKSPACE: // TODO is this correct?\n            return ch;\n        case END_OF_STREAM:\n            throw new IOException(\"EOF whilst processing escape sequence\");\n        default:\n            // Now check for meta-characters\n            if (isMetaChar(ch)) {\n                return ch;\n            }\n            // indicate unexpected char - available from in.getLastChar()\n            return END_OF_STREAM;\n        }\n    }\n"
+            }
+        ]
+    },
+    {
+        "caller_name": "org.apache.commons.csv.CSVFormat.printWithQuotes",
+        "caller_def": "    private void printWithQuotes(final Object object, final CharSequence charSeq, final Appendable out, final boolean newRecord) throws IOException {\n        boolean quote = false;\n        int start = 0;\n        int pos = 0;\n        final int len = charSeq.length();\n\n        final char[] delim = getDelimiterString().toCharArray();\n        final int delimLength = delim.length;\n        final char quoteChar = getQuoteCharacter().charValue();\n        // If escape char not specified, default to the quote char\n        // This avoids having to keep checking whether there is an escape character\n        // at the cost of checking against quote twice\n        final char escapeChar = isEscapeCharacterSet() ? getEscapeCharacter().charValue() : quoteChar;\n\n        QuoteMode quoteModePolicy = getQuoteMode();\n        if (quoteModePolicy == null) {\n            quoteModePolicy = QuoteMode.MINIMAL;\n        }\n        switch (quoteModePolicy) {\n        case ALL:\n        case ALL_NON_NULL:\n            quote = true;\n            break;\n        case NON_NUMERIC:\n            quote = !(object instanceof Number);\n            break;\n        case NONE:\n            // Use the existing escaping code\n            printWithEscapes(charSeq, out);\n            return;\n        case MINIMAL:\n            if (len <= 0) {\n                // always quote an empty token that is the first\n                // on the line, as it may be the only thing on the\n                // line. If it were not quoted in that case,\n                // an empty line has no tokens.\n                if (newRecord) {\n                    quote = true;\n                }\n            } else {\n                char c = charSeq.charAt(pos);\n\n                if (c <= COMMENT) {\n                    // Some other chars at the start of a value caused the parser to fail, so for now\n                    // encapsulate if we start in anything less than '#'. We are being conservative\n                    // by including the default comment char too.\n                    quote = true;\n                } else {\n                    while (pos < len) {\n                        c = charSeq.charAt(pos);\n                        if (c == LF || c == CR || c == quoteChar || c == escapeChar || isDelimiter(c, charSeq, pos, delim, delimLength)) {\n                            quote = true;\n                            break;\n                        }\n                        pos++;\n                    }\n\n                    if (!quote) {\n                        pos = len - 1;\n                        c = charSeq.charAt(pos);\n                        // Some other chars at the end caused the parser to fail, so for now\n                        // encapsulate if we end in anything less than ' '\n                        if (isTrimChar(c)) {\n                            quote = true;\n                        }\n                    }\n                }\n            }\n\n            if (!quote) {\n                // no encapsulation needed - write out the original value\n                out.append(charSeq, start, len);\n                return;\n            }\n            break;\n        default:\n            throw new IllegalStateException(\"Unexpected Quote value: \" + quoteModePolicy);\n        }\n\n        if (!quote) {\n            // no encapsulation needed - write out the original value\n            out.append(charSeq, start, len);\n            return;\n        }\n\n        // we hit something that needed encapsulation\n        out.append(quoteChar);\n\n        // Pick up where we left off: pos should be positioned on the first character that caused\n        // the need for encapsulation.\n        while (pos < len) {\n            final char c = charSeq.charAt(pos);\n            if (c == quoteChar || c == escapeChar) {\n                // write out the chunk up until this point\n                out.append(charSeq, start, pos);\n                out.append(escapeChar); // now output the escape\n                start = pos; // and restart with the matched char\n            }\n            pos++;\n        }\n\n        // write the last segment\n        out.append(charSeq, start, pos);\n        out.append(quoteChar);\n    }\n",
+        "callee_list": [
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.isTrimChar",
+                "callee_def": "    private static boolean isTrimChar(final char ch) {\n        return ch <= SP;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.isDelimiter",
+                "callee_def": "    private boolean isDelimiter(final char ch, final CharSequence charSeq, final int startIndex, final char[] delimiter, final int delimiterLength) {\n        if (ch != delimiter[0]) {\n            return false;\n        }\n        final int len = charSeq.length();\n        if (startIndex + delimiterLength > len) {\n            return false;\n        }\n        for (int i = 1; i < delimiterLength; i++) {\n            if (charSeq.charAt(startIndex + i) != delimiter[i]) {\n                return false;\n            }\n        }\n        return true;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.getDelimiterString",
+                "callee_def": "    public String getDelimiterString() {\n        return delimiter;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.isEscapeCharacterSet",
+                "callee_def": "    public boolean isEscapeCharacterSet() {\n        return escapeCharacter != null;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.printWithEscapes",
+                "callee_def": "    private void printWithEscapes(final CharSequence charSeq, final Appendable appendable) throws IOException {\n        int start = 0;\n        int pos = 0;\n        final int end = charSeq.length();\n\n        final char[] delim = getDelimiterString().toCharArray();\n        final int delimLength = delim.length;\n        final char escape = getEscapeCharacter().charValue();\n\n        while (pos < end) {\n            char c = charSeq.charAt(pos);\n            final boolean isDelimiterStart = isDelimiter(c, charSeq, pos, delim, delimLength);\n            if (c == CR || c == LF || c == escape || isDelimiterStart) {\n                // write out segment up until this char\n                if (pos > start) {\n                    appendable.append(charSeq, start, pos);\n                }\n                if (c == LF) {\n                    c = 'n';\n                } else if (c == CR) {\n                    c = 'r';\n                }\n\n                appendable.append(escape);\n                appendable.append(c);\n\n                if (isDelimiterStart) {\n                    for (int i = 1; i < delimLength; i++) {\n                        pos++;\n                        c = charSeq.charAt(pos);\n                        appendable.append(escape);\n                        appendable.append(c);\n                    }\n                }\n\n                start = pos + 1; // start on the current char after this one\n            }\n            pos++;\n        }\n\n        // write last segment\n        if (pos > start) {\n            appendable.append(charSeq, start, pos);\n        }\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.getEscapeCharacter",
+                "callee_def": "    public Character getEscapeCharacter() {\n        return escapeCharacter;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.getQuoteCharacter",
+                "callee_def": "    public Character getQuoteCharacter() {\n        return quoteCharacter;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVFormat.getQuoteMode",
+                "callee_def": "    public QuoteMode getQuoteMode() {\n        return quoteMode;\n    }\n"
+            }
+        ]
+    },
+    {
+        "caller_name": "org.apache.commons.csv.CSVParser.nextRecord",
+        "caller_def": "    CSVRecord nextRecord() throws IOException {\n        CSVRecord result = null;\n        this.recordList.clear();\n        StringBuilder sb = null;\n        final long startCharPosition = lexer.getCharacterPosition() + this.characterOffset;\n        do {\n            this.reusableToken.reset();\n            this.lexer.nextToken(this.reusableToken);\n            switch (this.reusableToken.type) {\n            case TOKEN:\n                this.addRecordValue(false);\n                break;\n            case EORECORD:\n                this.addRecordValue(true);\n                break;\n            case EOF:\n                if (this.reusableToken.isReady) {\n                    this.addRecordValue(true);\n                } else if (sb != null) {\n                    trailerComment = sb.toString();\n                }\n                break;\n            case INVALID:\n                throw new IOException(\"(line \" + this.getCurrentLineNumber() + \") invalid parse sequence\");\n            case COMMENT: // Ignored currently\n                if (sb == null) { // first comment for this record\n                    sb = new StringBuilder();\n                } else {\n                    sb.append(Constants.LF);\n                }\n                sb.append(this.reusableToken.content);\n                this.reusableToken.type = TOKEN; // Read another token\n                break;\n            default:\n                throw new IllegalStateException(\"Unexpected Token type: \" + this.reusableToken.type);\n            }\n        } while (this.reusableToken.type == TOKEN);\n\n        if (!this.recordList.isEmpty()) {\n            this.recordNumber++;\n            final String comment = sb == null ? null : sb.toString();\n            result = new CSVRecord(this, this.recordList.toArray(Constants.EMPTY_STRING_ARRAY), comment,\n                this.recordNumber, startCharPosition);\n        }\n        return result;\n    }\n",
+        "callee_list": [
+            {
+                "callee_name": "org.apache.commons.csv.CSVParser.addRecordValue",
+                "callee_def": "    private void addRecordValue(final boolean lastRecord) {\n        final String input = this.format.trim(this.reusableToken.content.toString());\n        if (lastRecord && input.isEmpty() && this.format.getTrailingDelimiter()) {\n            return;\n        }\n        this.recordList.add(handleNull(input));\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.CSVParser.getCurrentLineNumber",
+                "callee_def": "    public long getCurrentLineNumber() {\n        return this.lexer.getCurrentLineNumber();\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.getCharacterPosition",
+                "callee_def": "    long getCharacterPosition() {\n        return reader.getPosition();\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Token.reset",
+                "callee_def": "    void reset() {\n        content.setLength(0);\n        type = INVALID;\n        isReady = false;\n        isQuoted = false;\n    }\n"
+            },
+            {
+                "callee_name": "org.apache.commons.csv.Lexer.nextToken",
+                "callee_def": "    Token nextToken(final Token token) throws IOException {\n\n        // get the last read char (required for empty line detection)\n        int lastChar = reader.getLastChar();\n\n        // read the next char and set eol\n        int c = reader.read();\n        /*\n         * Note: The following call will swallow LF if c == CR. But we don't need to know if the last char was CR or LF\n         * - they are equivalent here.\n         */\n        boolean eol = readEndOfLine(c);\n\n        // empty line detection: eol AND (last char was EOL or beginning)\n        if (ignoreEmptyLines) {\n            while (eol && isStartOfLine(lastChar)) {\n                // go on char ahead ...\n                lastChar = c;\n                c = reader.read();\n                eol = readEndOfLine(c);\n                // reached end of file without any content (empty line at the end)\n                if (isEndOfFile(c)) {\n                    token.type = EOF;\n                    // don't set token.isReady here because no content\n                    return token;\n                }\n            }\n        }\n\n        // did we reach eof during the last iteration already ? EOF\n        if (isEndOfFile(lastChar) || !isLastTokenDelimiter && isEndOfFile(c)) {\n            token.type = EOF;\n            // don't set token.isReady here because no content\n            return token;\n        }\n\n        if (isStartOfLine(lastChar) && isCommentStart(c)) {\n            final String line = reader.readLine();\n            if (line == null) {\n                token.type = EOF;\n                // don't set token.isReady here because no content\n                return token;\n            }\n            final String comment = line.trim();\n            token.content.append(comment);\n            token.type = COMMENT;\n            return token;\n        }\n"
+
+            }
+        ]
+    }
+]
