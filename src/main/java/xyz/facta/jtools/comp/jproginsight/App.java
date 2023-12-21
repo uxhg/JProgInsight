@@ -111,7 +111,8 @@ public class App {
                 }
             });
             for (CtInvocation element : elements) {
-                String callee_class = getCalleeClassNameComplex(element);
+                //String callee_class = getCalleeClassNameComplex(element);
+                String callee_class = getCalleeClassName(element);
                 //if (!Objects.equals(element.getExecutable().getDeclaration().toString(), element.getTarget().getType().getQualifiedName())) {
                 //    logger.error("callee_class: {}, target_type: {}", element.getExecutable().getDeclaration().toString(), element.getTarget().getType().getQualifiedName());
                 //}
@@ -135,14 +136,14 @@ public class App {
     private static String getCalleeClassNameComplex(CtInvocation element) {
         String callee_class = "N_A";
         CtExpression<?> target = element.getTarget();
-        logger.error("element: {}, target: {}, type: {}", element.toString(), target, target.getType());
+        logger.debug("element: {}, target: {}, type: {}", element.toString(), target, target.getType());
         if (target instanceof CtFieldRead) {// If encountering static field like CSVFormat.DEFAULT.methodcall()
             CtFieldRead<?> fieldRead = (CtFieldRead<?>) target;
             if (fieldRead.getVariable().isStatic()) {
                 // Use the type of the static field
                 try {
                     callee_class = fieldRead.getType().getQualifiedName();
-                    logger.error("callee class name is: {}", callee_class);
+                    logger.debug("callee class name is: {}", callee_class);
                 } catch (NullPointerException e) {
                     logger.info("Cannot get callee type for {}", element.toString());
                     countCalleesWithoutType++;
@@ -150,7 +151,7 @@ public class App {
             }
         } else {
             try {
-                logger.error("element: {}, exec: {}, type: {}", element.toString(), element.getExecutable(), element.getExecutable().getDeclaringType());
+                logger.debug("element: {}, exec: {}, type: {}", element.toString(), element.getExecutable(), element.getExecutable().getDeclaringType());
                 callee_class = element.getExecutable().getDeclaringType().getQualifiedName();
             } catch (NullPointerException e) {
                 logger.info("Cannot get callee declaring type for {}", element.toString());
