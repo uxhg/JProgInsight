@@ -25,7 +25,7 @@ import java.util.*;
 
 public class App {
     private static final Logger logger = LogManager.getLogger(App.class);
-    private static int countCalleesWithoutType = 0; // counters for: how many callees cannot get their types
+    private static int countCalleesWithoutType = 0; // counters for: how many callees cannot get their class names
     private static int countCalleesWithoutDefinition = 0; // counters for: how many callees cannot get their definitions
 
     public static void main(String[] args) {
@@ -124,7 +124,7 @@ public class App {
     private static String getCalleeClassName(CtInvocation element) {
         String callee_class = "N_A";
         try {
-            callee_class = element.getExecutable().getDeclaringType().toString();
+            callee_class = element.getExecutable().getDeclaringType().getQualifiedName();
         } catch (NullPointerException e) {
             logger.info("Cannot get callee declaring type for {}", element.toString());
             countCalleesWithoutType++;
@@ -142,6 +142,7 @@ public class App {
                 // Use the type of the static field
                 try {
                     callee_class = fieldRead.getType().getQualifiedName();
+                    logger.error("callee class name is: {}", callee_class);
                 } catch (NullPointerException e) {
                     logger.info("Cannot get callee type for {}", element.toString());
                     countCalleesWithoutType++;
@@ -149,7 +150,8 @@ public class App {
             }
         } else {
             try {
-                callee_class = element.getExecutable().getDeclaringType().toString();
+                logger.error("element: {}, exec: {}, type: {}", element.toString(), element.getExecutable(), element.getExecutable().getDeclaringType());
+                callee_class = element.getExecutable().getDeclaringType().getQualifiedName();
             } catch (NullPointerException e) {
                 logger.info("Cannot get callee declaring type for {}", element.toString());
                 countCalleesWithoutType++;
@@ -213,7 +215,13 @@ public class App {
                 String calleeDef = methodSignatureToDefinitionMap.get(calleeSig);
                 if (calleeDef == null) {
                     // many callees have no definition because they are from external libraries
-                    logger.info("Definition not found for callee:" + calleeSig);
+                    if (calleeSig.startsWith("N_A.")) {
+                        logger.debug("Definition not found for callee because it class name is unknown, it should be from external libraries:" + calleeSig);
+                    } else if (calleeSig.startsWith("java.") || calleeSig.startsWith("javax.")) {
+                        logger.debug("Definition not found for callee because it is from java... or javax... libraries:" + calleeSig);
+                    } else {
+                        logger.info("Definition not found for callee:" + calleeSig);
+                    }
                     countCalleesWithoutDefinition++;
                     continue;
                 }
